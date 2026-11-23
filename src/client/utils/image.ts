@@ -4,8 +4,8 @@
  */
 export async function compressImageToBase64(
   file: File,
-  maxDimension = 1600,
-  quality = 0.85,
+  maxDimension = 1024,
+  quality = 0.75,
 ): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

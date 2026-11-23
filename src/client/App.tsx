@@ -110,6 +110,21 @@ export function App() {
 
   const loadMe = async () => {
     try {
+      const cachedRaw = localStorage.getItem("kakeibo_me_cache");
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw) as MeResponse;
+        setMembers(cached.members);
+        setUsers(cached.users);
+        setActivePayer(cached.displayName);
+        setUserEmail(cached.email);
+        setIsRegistered(cached.isRegistered);
+        setGasConfigured(cached.gasConfigured);
+      }
+    } catch {
+      // ignore cache parse error
+    }
+
+    try {
       const res = await apiFetch("/api/me");
       const data = (await res.json()) as MeResponse;
       setMembers(data.members);
@@ -120,6 +135,11 @@ export function App() {
       setGasConfigured(data.gasConfigured);
       if (data.email && !settingEmail) {
         setSettingEmail(data.email);
+      }
+      try {
+        localStorage.setItem("kakeibo_me_cache", JSON.stringify(data));
+      } catch {
+        // ignore quota error
       }
     } catch {
       // ignore

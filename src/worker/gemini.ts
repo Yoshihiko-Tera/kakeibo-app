@@ -46,6 +46,9 @@ export function buildDedupeKey(date: string, amount: number, title: string): str
   return `${date}_${Math.round(amount)}_${normalizedTitle}`;
 }
 
+// 一度成功したモデルをWorkerインスタンス内でキャッシュして2回目以降を高速化
+let cachedWorkingModel: string | null = null;
+
 export async function analyzeImageWithGemini(
   apiKey: string,
   req: AnalyzeRequest,
@@ -101,49 +104,68 @@ ${HINT_INSTRUCTIONS[req.hint]}
     required: ["items"],
   };
 
-  const candidateModels = [
+  let models: string[] = [];
+
+  if (cachedWorkingModel) {
+    models.push(cachedWorkingModel);
+  }
+
+  // キャッシュがない場合のみ ListModels で実際に使えるモデルを優先取得
+  if (!cachedWorkingModel) {
+    try {
+      const listRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      if (listRes.ok) {
+        const listData = (await listRes.json()) as {
+          models?: Array<{
+            name: string;
+            supportedGenerationMethods?: string[];
+          }>;
+        };
+        const available = (listData.models ?? [])
+          .filter(
+            (m) =>
+              m.supportedGenerationMethods?.includes("generateContent") &&
+              m.name.includes("gemini") &&
+              !m.name.includes("tts") &&
+              !m.name.includes("embedding") &&
+              !m.name.includes("image") &&
+              !m.name.includes("pro") &&
+              !m.name.includes("argon") &&
+              !m.name.includes("carbon"),
+          )
+          .map((m) => m.name.replace(/^models\//, ""));
+
+        // hydrogen や flash-lite / flash を優先順位付け
+        available.sort((a, b) => {
+          const score = (name: string) => {
+            if (name.includes("hydrogen")) return 0;
+            if (name.includes("flash-lite")) return 1;
+            if (name.includes("flash")) return 2;
+            return 3;
+          };
+          return score(a) - score(b);
+        });
+
+        models.push(...available);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const fallbackModels = [
     "gemini-4-hydrogen",
     "gemini-3.8-flash",
     "gemini-3.5-flash",
-    "gemini-3-flash-preview",
     "gemini-2.5-flash-lite",
   ];
-
-  // APIキーで利用可能なモデル一覧を取得して候補を補完
-  try {
-    const listRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-      { signal: AbortSignal.timeout(8000) },
-    );
-    if (listRes.ok) {
-      const listData = (await listRes.json()) as {
-        models?: Array<{
-          name: string;
-          supportedGenerationMethods?: string[];
-        }>;
-      };
-      const available = (listData.models ?? [])
-        .filter(
-          (m) =>
-            m.supportedGenerationMethods?.includes("generateContent") &&
-            m.name.includes("gemini") &&
-            !m.name.includes("tts") &&
-            !m.name.includes("embedding") &&
-            !m.name.includes("image"),
-        )
-        .map((m) => m.name.replace(/^models\//, ""));
-
-      for (const m of available) {
-        if (!candidateModels.includes(m)) {
-          candidateModels.push(m);
-        }
-      }
-    }
-  } catch {
-    // ListModels が失敗しても静的候補で続行
+  for (const fm of fallbackModels) {
+    if (!models.includes(fm)) models.push(fm);
   }
-
-  const models = candidateModels.slice(0, 8);
+  models = models.slice(0, 5);
 
   const requestBody = JSON.stringify({
     contents: [
@@ -194,6 +216,7 @@ ${HINT_INSTRUCTIONS[req.hint]}
 
       if (res.ok) {
         data = (await res.json()) as GeminiApiResponse;
+        cachedWorkingModel = model;
         break;
       }
 
@@ -208,12 +231,16 @@ ${HINT_INSTRUCTIONS[req.hint]}
         // keep raw
       }
 
+      if (model === cachedWorkingModel) {
+        cachedWorkingModel = null;
+      }
+
       if (res.status === 404) {
         errorLogs.push(`${model}: 404`);
         break;
       }
       if ((res.status === 503 || res.status === 429) && attempt === 0) {
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 400));
         continue;
       }
       if (res.status === 503 || res.status === 429) {

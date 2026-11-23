@@ -1,0 +1,17 @@
+{
+  "name": "ふたり家計簿",
+  "short_name": "家計簿",
+  "description": "レシート・スクショ・給与明細をAIで読み取ってスプレッドシートに記録する夫婦共有家計簿",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

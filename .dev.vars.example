@@ -1,0 +1,8 @@
+# Gemini API キー (Google AI Studio で取得)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Google Apps Script の Webアプリ URL
+GAS_WEBHOOK_URL=https://script.google.com/macros/s/your_deployment_id/exec
+
+# GAS側のスクリプトプロパティに設定する共有シークレット
+GAS_SECRET=change_this_to_a_random_secret_string

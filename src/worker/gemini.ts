@@ -102,9 +102,9 @@ ${HINT_INSTRUCTIONS[req.hint]}
   };
 
   const models = [
+    "gemini-4-hydrogen",
     "gemini-3.8-flash",
-    "gemini-3.8-flash-lite",
-    "gemini-3.8-pro",
+    "gemini-4-argon",
   ];
 
   const requestBody = JSON.stringify({
@@ -141,11 +141,18 @@ ${HINT_INSTRUCTIONS[req.hint]}
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: requestBody,
-      });
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (fetchErr) {
+        lastError = `通信タイムアウトまたはネットワークエラー (${model})`;
+        break;
+      }
 
       if (res.ok) {
         data = (await res.json()) as GeminiApiResponse;

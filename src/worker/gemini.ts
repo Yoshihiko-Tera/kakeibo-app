@@ -101,11 +101,49 @@ ${HINT_INSTRUCTIONS[req.hint]}
     required: ["items"],
   };
 
-  const models = [
+  const candidateModels = [
     "gemini-4-hydrogen",
     "gemini-3.8-flash",
-    "gemini-4-argon",
+    "gemini-3.5-flash",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash-lite",
   ];
+
+  // APIキーで利用可能なモデル一覧を取得して候補を補完
+  try {
+    const listRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (listRes.ok) {
+      const listData = (await listRes.json()) as {
+        models?: Array<{
+          name: string;
+          supportedGenerationMethods?: string[];
+        }>;
+      };
+      const available = (listData.models ?? [])
+        .filter(
+          (m) =>
+            m.supportedGenerationMethods?.includes("generateContent") &&
+            m.name.includes("gemini") &&
+            !m.name.includes("tts") &&
+            !m.name.includes("embedding") &&
+            !m.name.includes("image"),
+        )
+        .map((m) => m.name.replace(/^models\//, ""));
+
+      for (const m of available) {
+        if (!candidateModels.includes(m)) {
+          candidateModels.push(m);
+        }
+      }
+    }
+  } catch {
+    // ListModels が失敗しても静的候補で続行
+  }
+
+  const models = candidateModels.slice(0, 8);
 
   const requestBody = JSON.stringify({
     contents: [
@@ -135,7 +173,7 @@ ${HINT_INSTRUCTIONS[req.hint]}
   }
 
   let data: GeminiApiResponse | null = null;
-  let lastError = "";
+  const errorLogs: string[] = [];
 
   for (const model of models) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -147,10 +185,10 @@ ${HINT_INSTRUCTIONS[req.hint]}
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: requestBody,
-          signal: AbortSignal.timeout(20000),
+          signal: AbortSignal.timeout(15000),
         });
-      } catch (fetchErr) {
-        lastError = `通信タイムアウトまたはネットワークエラー (${model})`;
+      } catch {
+        errorLogs.push(`${model}: タイムアウト`);
         break;
       }
 
@@ -160,29 +198,38 @@ ${HINT_INSTRUCTIONS[req.hint]}
       }
 
       const errText = await res.text();
-      lastError = `Gemini APIエラー (${model} / ${res.status}): ${errText}`;
+      let shortMsg = errText;
+      try {
+        const parsedErr = JSON.parse(errText) as { error?: { message?: string } };
+        if (parsedErr.error?.message) {
+          shortMsg = parsedErr.error.message.split("\n")[0];
+        }
+      } catch {
+        // keep raw
+      }
 
-      // 404（モデル非対応）は次のモデルへ即フォールバック
       if (res.status === 404) {
+        errorLogs.push(`${model}: 404`);
         break;
       }
-      // 503/429（混雑）は1回だけ1.5秒待ってリトライ、ダメなら次のモデルへ
       if ((res.status === 503 || res.status === 429) && attempt === 0) {
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1000));
         continue;
       }
       if (res.status === 503 || res.status === 429) {
+        errorLogs.push(`${model}: ${res.status} (${shortMsg.slice(0, 60)})`);
         break;
       }
-      // 400/401/403 などの設定・入力エラーは即終了
-      throw new Error(lastError);
+      throw new Error(`Gemini APIエラー (${model} / ${res.status}): ${shortMsg}`);
     }
 
     if (data) break;
   }
 
   if (!data) {
-    throw new Error(lastError || "すべてのGeminiモデルで解析に失敗しました。");
+    throw new Error(
+      `利用可能なモデルで解析できませんでした: ${errorLogs.join(" | ")}`,
+    );
   }
 
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;

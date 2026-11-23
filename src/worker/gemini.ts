@@ -104,8 +104,7 @@ ${HINT_INSTRUCTIONS[req.hint]}
   const models = [
     "gemini-3.8-flash",
     "gemini-3.8-flash-lite",
-    "gemini-3.0-flash",
-    "gemini-2.5-flash",
+    "gemini-3.8-pro",
   ];
 
   const requestBody = JSON.stringify({

@@ -101,43 +101,83 @@ ${HINT_INSTRUCTIONS[req.hint]}
     required: ["items"],
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const models = [
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-lite",
+    "gemini-3.0-flash",
+    "gemini-2.5-flash",
+  ];
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: prompt },
-            {
-              inline_data: {
-                mime_type: req.mimeType,
-                data: req.imageBase64,
-              },
+  const requestBody = JSON.stringify({
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          {
+            inline_data: {
+              mime_type: req.mimeType,
+              data: req.imageBase64,
             },
-          ],
-        },
-      ],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema,
-        temperature: 0.1,
+          },
+        ],
       },
-    }),
+    ],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema,
+      temperature: 0.1,
+    },
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini APIエラー (${res.status}): ${errText}`);
-  }
-
-  const data = (await res.json()) as {
+  interface GeminiApiResponse {
     candidates?: Array<{
       content?: { parts?: Array<{ text?: string }> };
     }>;
-  };
+  }
+
+  let data: GeminiApiResponse | null = null;
+  let lastError = "";
+
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+      });
+
+      if (res.ok) {
+        data = (await res.json()) as GeminiApiResponse;
+        break;
+      }
+
+      const errText = await res.text();
+      lastError = `Gemini APIエラー (${model} / ${res.status}): ${errText}`;
+
+      // 404（モデル非対応）は次のモデルへ即フォールバック
+      if (res.status === 404) {
+        break;
+      }
+      // 503/429（混雑）は1回だけ1.5秒待ってリトライ、ダメなら次のモデルへ
+      if ((res.status === 503 || res.status === 429) && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      if (res.status === 503 || res.status === 429) {
+        break;
+      }
+      // 400/401/403 などの設定・入力エラーは即終了
+      throw new Error(lastError);
+    }
+
+    if (data) break;
+  }
+
+  if (!data) {
+    throw new Error(lastError || "すべてのGeminiモデルで解析に失敗しました。");
+  }
 
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!rawText) {

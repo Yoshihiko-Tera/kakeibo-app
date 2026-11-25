@@ -2,10 +2,13 @@ import { Hono, Context } from "hono";
 import {
   AnalyzeRequest,
   DEFAULT_MEMBERS,
+  DeleteTransactionRequest,
   MeResponse,
   SaveTransactionsRequest,
   SaveTransactionsResponse,
   SummaryResponse,
+  SummaryScopeFilter,
+  UpdateTransactionRequest,
   UserProfile,
 } from "../shared/types";
 import { analyzeImageWithGemini, buildDedupeKey } from "./gemini";
@@ -240,9 +243,70 @@ app.post("/api/transactions", async (c) => {
   }
 });
 
+app.put("/api/transactions", async (c) => {
+  const gas = resolveGasConfig(c);
+  if (gas.error) return c.json({ error: gas.error }, 400);
+  if (!gas.url) {
+    return c.json(
+      { error: "保存先のスプレッドシート（GAS URL）が未設定です。" },
+      400,
+    );
+  }
+
+  try {
+    const body = await c.req.json<UpdateTransactionRequest>();
+    if (!body.rowNumber || body.rowNumber < 2) {
+      return c.json({ error: "不正な行番号です。" }, 400);
+    }
+
+    const dedupeKey = buildDedupeKey(body.date, body.amount, body.title);
+    const result = await callGas<{ message: string }>(gas.url, gas.secret, {
+      action: "update_transaction",
+      ...body,
+      dedupeKey,
+    });
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "更新中にエラーが発生しました。";
+    return c.json({ error: message }, 400);
+  }
+});
+
+app.delete("/api/transactions", async (c) => {
+  const gas = resolveGasConfig(c);
+  if (gas.error) return c.json({ error: gas.error }, 400);
+  if (!gas.url) {
+    return c.json(
+      { error: "保存先のスプレッドシート（GAS URL）が未設定です。" },
+      400,
+    );
+  }
+
+  try {
+    const body = await c.req.json<DeleteTransactionRequest>();
+    if (!body.rowNumber || body.rowNumber < 2) {
+      return c.json({ error: "不正な行番号です。" }, 400);
+    }
+
+    const result = await callGas<{ message: string }>(gas.url, gas.secret, {
+      action: "delete_transaction",
+      rowNumber: body.rowNumber,
+    });
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "削除中にエラーが発生しました。";
+    return c.json({ error: message }, 400);
+  }
+});
+
 app.get("/api/summary", async (c) => {
   const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const reqMonth = c.req.query("month")?.trim();
+  const month = reqMonth && /^\d{4}-\d{2}$/.test(reqMonth) ? reqMonth : defaultMonth;
+  const reqScope = c.req.query("scope") as SummaryScopeFilter | undefined;
+  const scope: SummaryScopeFilter =
+    reqScope === "共通費" || reqScope === "個人" ? reqScope : "すべて";
 
   const gas = resolveGasConfig(c);
   if (gas.error) return c.json({ error: gas.error }, 400);
@@ -250,10 +314,12 @@ app.get("/api/summary", async (c) => {
   if (!gas.url) {
     const empty: SummaryResponse = {
       month,
+      scope,
       totalIncome: 0,
       totalExpense: 0,
       byPayer: {},
-      recentItems: [],
+      categoryBreakdown: [],
+      items: [],
       configured: false,
     };
     return c.json(empty);
@@ -266,6 +332,7 @@ app.get("/api/summary", async (c) => {
       {
         action: "summary",
         month,
+        scope,
       },
     );
     return c.json({ ...result, configured: true });

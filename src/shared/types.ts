@@ -101,20 +101,54 @@ export interface SaveTransactionsResponse {
   message: string;
 }
 
+export type SummaryScopeFilter = "すべて" | "共通費" | "個人";
+
+export interface SummaryTransactionItem {
+  rowNumber: number;
+  date: string; // YYYY-MM-DD
+  type: TransactionType;
+  category: string;
+  title: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  payer: string;
+  scope: HouseholdScope;
+  source: string;
+  memo: string;
+  dedupeKey: string;
+}
+
+export interface CategoryBreakdownItem {
+  category: string;
+  amount: number;
+  percentage: number;
+}
+
 export interface SummaryResponse {
   month: string;
+  scope: SummaryScopeFilter;
   totalIncome: number;
   totalExpense: number;
   byPayer: Record<string, number>;
-  recentItems: {
-    date: string;
-    type: TransactionType;
-    category: string;
-    title: string;
-    amount: number;
-    payer: string;
-  }[];
+  categoryBreakdown: CategoryBreakdownItem[];
+  items: SummaryTransactionItem[];
   configured: boolean;
+}
+
+export interface UpdateTransactionRequest {
+  rowNumber: number;
+  date: string;
+  type: TransactionType;
+  category: string;
+  title: string;
+  amount: number;
+  scope: HouseholdScope;
+  payer: string;
+  memo: string;
+}
+
+export interface DeleteTransactionRequest {
+  rowNumber: number;
 }
 
 export interface MeResponse {

@@ -11,7 +11,6 @@ import {
   PenLine,
   PieChart,
   Receipt,
-  RefreshCw,
   Settings,
   Smartphone,
   Sparkles,
@@ -32,10 +31,10 @@ import {
   PaymentMethod,
   SaveTransactionsResponse,
   SourceHint,
-  SummaryResponse,
   TransactionType,
   UserProfile,
 } from "../shared/types";
+import { SummaryView } from "./components/SummaryView";
 import { TransactionCard } from "./components/TransactionCard";
 import {
   apiFetch,
@@ -95,9 +94,8 @@ export function App() {
   const [manualScope, setManualScope] = useState<HouseholdScope>("共通費");
   const [manualMemo, setManualMemo] = useState("");
 
-  // サマリー
-  const [summary, setSummary] = useState<SummaryResponse | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
+  // サマリー再読み込みトリガー
+  const [summaryRefreshTrigger, setSummaryRefreshTrigger] = useState(0);
 
   // GAS設定フォーム
   const [gasUrlInput, setGasUrlInput] = useState("");
@@ -159,31 +157,6 @@ export function App() {
     }
     void loadMe();
   }, []);
-
-  const fetchSummary = async () => {
-    setLoadingSummary(true);
-    try {
-      const res = await apiFetch("/api/summary");
-      const data = (await res.json()) as SummaryResponse & { error?: string };
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "集計の取得に失敗しました");
-      }
-      setSummary(data);
-    } catch (err) {
-      setFeedback({
-        type: "error",
-        text: err instanceof Error ? err.message : "集計の取得に失敗しました",
-      });
-    } finally {
-      setLoadingSummary(false);
-    }
-  };
-
-  useEffect(() => {
-    if (tab === "summary" && !summary) {
-      void fetchSummary();
-    }
-  }, [tab, summary]);
 
   const handleFilesSelected = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -312,7 +285,7 @@ export function App() {
         text: data.message,
       });
       setItems((prev) => prev.filter((item) => !item.selected));
-      setSummary(null);
+      setSummaryRefreshTrigger((n) => n + 1);
     } catch (err) {
       setFeedback({
         type: "error",
@@ -378,7 +351,7 @@ export function App() {
       setManualTitle("");
       setManualAmount("");
       setManualMemo("");
-      setSummary(null);
+      setSummaryRefreshTrigger((n) => n + 1);
     } catch (err) {
       setFeedback({
         type: "error",
@@ -403,7 +376,7 @@ export function App() {
       return;
     }
     saveStoredGasConfig(trimmedUrl, gasSecretInput.trim());
-    setSummary(null);
+    setSummaryRefreshTrigger((n) => n + 1);
     await loadMe();
     setFeedback({
       type: "success",
@@ -415,7 +388,7 @@ export function App() {
     clearStoredGasConfig();
     setGasUrlInput("");
     setGasSecretInput("");
-    setSummary(null);
+    setSummaryRefreshTrigger((n) => n + 1);
     await loadMe();
     setFeedback({
       type: "success",
@@ -533,7 +506,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-slate-50 pb-28">
       {/* ヘッダー */}
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <header className="no-print sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-700 text-white shadow-xs">
@@ -647,7 +620,7 @@ export function App() {
         {/* 通知バナー */}
         {feedback && (
           <div
-            className={`mb-4 flex items-start gap-2 rounded-2xl border p-3.5 text-sm font-medium ${
+            className={`no-print mb-4 flex items-start gap-2 rounded-2xl border p-3.5 text-sm font-medium ${
               feedback.type === "success"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                 : "border-rose-200 bg-rose-50 text-rose-800"
@@ -947,117 +920,13 @@ export function App() {
           </form>
         )}
 
-        {/* タブ3: 今月の集計 */}
+        {/* タブ3: 集計 */}
         {tab === "summary" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-700">
-                {summary?.month ?? "今月"}のサマリー
-              </h2>
-              <button
-                type="button"
-                onClick={() => void fetchSummary()}
-                disabled={loadingSummary}
-                className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${loadingSummary ? "animate-spin" : ""}`}
-                />
-                更新
-              </button>
-            </div>
-
-            {summary && !summary.configured && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
-                スプレッドシート（GAS URL）が未設定です。「設定」タブから自分の GAS Webアプリ URL を登録してください。
-              </div>
-            )}
-
-            {summary && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-                    <p className="text-xs font-medium text-slate-500">
-                      今月の支出
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-rose-600">
-                      ¥{summary.totalExpense.toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-                    <p className="text-xs font-medium text-slate-500">
-                      今月の収入
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-emerald-600">
-                      ¥{summary.totalIncome.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-
-                {Object.keys(summary.byPayer).length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-                    <h3 className="mb-2.5 text-xs font-bold text-slate-600">
-                      メンバー別の支出
-                    </h3>
-                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                      {Object.entries(summary.byPayer).map(([payer, total]) => (
-                        <div
-                          key={payer}
-                          className="rounded-xl bg-slate-50 px-3 py-2.5"
-                        >
-                          <p className="text-[11px] font-medium text-slate-500">
-                            {payer}
-                          </p>
-                          <p className="mt-0.5 text-sm font-bold text-slate-800">
-                            ¥{total.toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-                  <h3 className="mb-3 text-xs font-bold text-slate-600">
-                    直近の登録
-                  </h3>
-                  {summary.recentItems.length === 0 ? (
-                    <p className="text-xs text-slate-400">
-                      まだ今月のデータがありません。
-                    </p>
-                  ) : (
-                    <ul className="divide-y divide-slate-100">
-                      {summary.recentItems.map((row, idx) => (
-                        <li
-                          key={idx}
-                          className="flex items-center justify-between py-2.5 text-xs"
-                        >
-                          <div>
-                            <p className="font-bold text-slate-800">
-                              {row.title}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              {row.date} ・ {row.category} ・ {row.payer}
-                            </p>
-                          </div>
-                          <span
-                            className={`font-bold ${
-                              row.type === "収入"
-                                ? "text-emerald-600"
-                                : "text-slate-900"
-                            }`}
-                          >
-                            {row.type === "収入" ? "+" : ""}¥
-                            {row.amount.toLocaleString()}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+          <SummaryView
+            members={members}
+            refreshTrigger={summaryRefreshTrigger}
+            onFeedback={setFeedback}
+          />
         )}
 
         {/* タブ4: 設定 */}

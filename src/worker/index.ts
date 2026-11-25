@@ -326,7 +326,7 @@ app.get("/api/summary", async (c) => {
   }
 
   try {
-    const result = await callGas<Omit<SummaryResponse, "configured">>(
+    const result = await callGas<Partial<Omit<SummaryResponse, "configured">>>(
       gas.url,
       gas.secret,
       {
@@ -335,7 +335,16 @@ app.get("/api/summary", async (c) => {
         scope,
       },
     );
-    return c.json({ ...result, configured: true });
+    return c.json({
+      month: result.month ?? month,
+      scope: result.scope ?? scope,
+      totalIncome: result.totalIncome ?? 0,
+      totalExpense: result.totalExpense ?? 0,
+      byPayer: result.byPayer ?? {},
+      categoryBreakdown: result.categoryBreakdown ?? [],
+      items: result.items ?? [],
+      configured: true,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "サマリー取得エラー";
     return c.json({ error: message }, 500);

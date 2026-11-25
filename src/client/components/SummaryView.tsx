@@ -76,6 +76,10 @@ export function SummaryView({ members, refreshTrigger, onFeedback }: Props) {
     void fetchSummary(month, scope);
   }, [month, scope, refreshTrigger]);
 
+  const byPayer = summary?.byPayer ?? {};
+  const categoryBreakdown = summary?.categoryBreakdown ?? [];
+  const items = summary?.items ?? [];
+
   // 共通費選択時の精算目安計算
   const settlementInfo = useMemo(() => {
     if (!summary || scope !== "共通費") return null;
@@ -84,7 +88,7 @@ export function SummaryView({ members, refreshTrigger, onFeedback }: Props) {
     const payerNames = Array.from(
       new Set([
         ...personalMembers,
-        ...Object.keys(summary.byPayer).filter((p) => p !== "共通"),
+        ...Object.keys(byPayer).filter((p) => p !== "共通"),
       ]),
     );
 
@@ -92,7 +96,7 @@ export function SummaryView({ members, refreshTrigger, onFeedback }: Props) {
 
     // 支払額の上位2名（または登録メンバーの2名）で差額を計算
     const entries = payerNames
-      .map((name) => ({ name, amount: summary.byPayer[name] ?? 0 }))
+      .map((name) => ({ name, amount: byPayer[name] ?? 0 }))
       .sort((a, b) => b.amount - a.amount);
 
     const top = entries[0];
@@ -242,13 +246,13 @@ export function SummaryView({ members, refreshTrigger, onFeedback }: Props) {
           </div>
 
           {/* メンバー別支出 & 共通費の精算目安 */}
-          {(Object.keys(summary.byPayer).length > 0 || settlementInfo) && (
+          {(Object.keys(byPayer).length > 0 || settlementInfo) && (
             <div className="print-card rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
               <h3 className="mb-2.5 text-xs font-bold text-slate-600">
                 メンバー別の支出（{scope}）
               </h3>
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                {Object.entries(summary.byPayer).map(([payer, total]) => (
+                {Object.entries(byPayer).map(([payer, total]) => (
                   <div
                     key={payer}
                     className="rounded-xl bg-slate-50 px-3 py-2.5"
@@ -293,13 +297,13 @@ export function SummaryView({ members, refreshTrigger, onFeedback }: Props) {
             <h3 className="mb-3 text-xs font-bold text-slate-600">
               カテゴリ別の支出内訳
             </h3>
-            {summary.categoryBreakdown.length === 0 ? (
+            {categoryBreakdown.length === 0 ? (
               <p className="text-xs text-slate-400">
                 該当する支出データがありません。
               </p>
             ) : (
               <div className="space-y-2.5">
-                {summary.categoryBreakdown.map((cat) => (
+                {categoryBreakdown.map((cat) => (
                   <div key={cat.category} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-slate-700">
@@ -330,20 +334,20 @@ export function SummaryView({ members, refreshTrigger, onFeedback }: Props) {
           <div className="print-card rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-xs font-bold text-slate-600">
-                明細一覧（{summary.items.length}件・日付の新しい順）
+                明細一覧（{items.length}件・日付の新しい順）
               </h3>
               <span className="no-print text-[11px] text-slate-400">
                 タップで編集・削除
               </span>
             </div>
 
-            {summary.items.length === 0 ? (
+            {items.length === 0 ? (
               <p className="text-xs text-slate-400">
                 {formatMonthLabel(month)}のデータはありません。
               </p>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {summary.items.map((row) => (
+                {items.map((row) => (
                   <li key={row.rowNumber}>
                     <button
                       type="button"
